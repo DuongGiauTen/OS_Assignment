@@ -1,5 +1,5 @@
 
-# 📝 CHANGELOG - MEMBER 4 (Virtual Memory & System Calls)
+# 📝 CHANGELOG 
 
 **Người thực hiện:** Dương
 **Ngày cập nhật:** 18/11/2025
@@ -7,6 +7,7 @@
 -----
 
 ## 🚀 1. Các Tính Năng Đã Hoàn Thành
+- Đã Merge Feature/scheduler vào Assignment
 
   * **Core Logic (`src/mm-vm.c`):** Hoàn thiện các hàm quản lý vùng nhớ ảo (`inc_vma_limit`, `get_vm_area_node_at_brk`, `validate_overlap_vm_area`).
   * **System Call Handlers:**
