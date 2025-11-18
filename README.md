@@ -33,6 +33,7 @@ Giải quyết vấn đề xung đột chữ ký hàm giữa header 32-bit (`mm.
 /* MỚI (Đã đồng bộ hóa cho 64-bit trong mm64.c): */
 void get_pd_from_pagenum(uint64_t pgn, uint32_t *idx_pgd, ...);
 int vmap_pgd_memset(struct pcb_t *caller, addr_t addr, int pgnum, addr_t pattern);
+```
 
 ## ⚙️ 3. Cấu Hình Hệ Thống
 
