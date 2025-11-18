@@ -217,16 +217,22 @@ int pte_set_entry(struct pcb_t *caller, addr_t pgn, uint32_t pte_val)
 /*
  * vmap_pgd_memset - map a range of page at aligned address
  */
-int vmap_pgd_memset(struct pcb_t *caller,           // process call
-                    addr_t addr,                       // start address which is aligned to pagesz
-                    int pgnum)                      // num of mapping page
+int vmap_pgd_memset(struct pcb_t *caller, addr_t addr, int pgnum, addr_t pattern)
 {
-  //int pgit = 0;
-  //uint64_t pattern = 0xdeadbeef;
+  addr_t *pgd_table = caller->mm->pgd;
+  addr_t pgd_idx;
+  int i;
 
-  /* TODO memset the page table with given pattern
-   */
-
+  /* Logic: Duyệt qua từng trang cần set, tìm index trong PGD và gán pattern */
+  for(i = 0; i < pgnum; i++) {
+      // Lấy PGD index từ địa chỉ (addr + i * pagesize)
+      pgd_idx = PAGING64_ADDR_PGD(addr + i * PAGING64_PAGESZ);
+      
+      // Gán pattern vào entry tương ứng trong PGD
+      if(caller->mm->pgd != NULL) {
+          pgd_table[pgd_idx] = pattern;
+      }
+  }
   return 0;
 }
 
@@ -375,13 +381,20 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 {
   struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
 
-  /* TODO init page table directory */
-   //mm->pgd = ...
-   //mm->p4d = ...
-   //mm->pud = ...
-   //mm->pmd = ...
-   //mm->pt = ...
-
+  /* Khởi tạo các bảng phân trang 5 cấp */
+  /* Với mô phỏng đơn giản, ta cấp phát mảng cho PGD */
+  /* Kích thước: Dựa trên số lượng entry tối đa của PGD (thường là 512 trong x86_64 chuẩn, 
+     nhưng ở đây ta dùng PAGING_MAX_PGN hoặc một kích thước đủ lớn) */
+  
+  // Giả định kích thước bảng PGD đủ lớn để chứa các index
+  mm->pgd = malloc(65536 * sizeof(addr_t)); // Cấp phát tạm thời kích thước mẫu
+  
+  /* Các cấp thấp hơn sẽ được cấp phát động khi cần thiết (demand paging) 
+     hoặc khởi tạo NULL */
+  mm->p4d = NULL;
+  mm->pud = NULL;
+  mm->pmd = NULL;
+  mm->pt = NULL;
 
   /* By default the owner comes with at least one vma */
   vma0->vm_id = 0;
@@ -391,17 +404,15 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
   struct vm_rg_struct *first_rg = init_vm_rg(vma0->vm_start, vma0->vm_end);
   enlist_vm_rg_node(&vma0->vm_freerg_list, first_rg);
 
-  /* TODO update VMA0 next */
-  // vma0->next = ...
+  /* Update VMA0 next */
+  vma0->vm_next = NULL; 
 
   /* Point vma owner backward */
-  //vma0->vm_mm = mm; 
+  vma0->vm_mm = mm; 
 
-  /* TODO: update mmap */
-  //mm->mmap = ...
-  //mm->symrgtbl = ...
-
-
+  /* Update mmap */
+  mm->mmap = vma0;
+  
   return 0;
 }
 
@@ -499,20 +510,14 @@ int print_list_pgn(struct pgn_t *ip)
 
 int print_pgtbl(struct pcb_t *caller, addr_t start, addr_t end)
 {
-//  addr_t pgn_start;//, pgn_end;
-//  addr_t pgit;
-//  struct krnl_t *krnl = caller->krnl;
+  addr_t pgd=0, p4d=0, pud=0, pmd=0, pt=0;
 
-  addr_t pgd=0;
-  addr_t p4d=0;
-  addr_t pud=0;
-  addr_t pmd=0;
-  addr_t pt=0;
-
+  printf("--- Dumping Page Table ---\n");
+  // Demo: in ra thông tin mapping của địa chỉ start
   get_pd_from_address(start, &pgd, &p4d, &pud, &pmd, &pt);
-
-  /* TODO traverse the page map and dump the page directory entries */
-
+  printf("Addr: " FORMAT_ADDR " -> PGD: %04ld | P4D: %04ld | PUD: %04ld | PMD: %04ld | PT: %04ld\n", 
+         start, (long)pgd, (long)p4d, (long)pud, (long)pmd, (long)pt);
+  
   return 0;
 }
 
