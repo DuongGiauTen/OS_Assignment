@@ -134,11 +134,43 @@ int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
  * @pgn    : page number
  * @ret    : page table entry
  **/
-uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
-{
-  printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
-  return 0;
-}
+// uint32_t pte_get_entry(struct pcb_t *caller, uint32_t pgn)
+// {
+//     uint32_t pgd_i, p4d_i, pud_i, pmd_i, pt_i, off;
+    
+//     // 1. Chuyển PGN thành địa chỉ ảo (giả sử offset = 0) để tính toán index
+//     // Lưu ý: pgn là số trang, nên dịch trái 12 bit để ra địa chỉ
+//     uint64_t addr = ((uint64_t)pgn << 12);
+
+//     // 2. Dùng hàm translate đã viết để lấy index các cấp
+//     translate_64bit_address(addr, &pgd_i, &p4d_i, &pud_i, &pmd_i, &pt_i, &off);
+
+//     struct mm_struct *mm = caller->krnl->mm;
+
+//     // 3. Truy vết qua 5 cấp bảng trang (Page Table Walk)
+    
+//     // Cấp 1: PGD
+//     if (!mm->pgd) return 0; // Chưa có PGD -> Lỗi
+//     if (!mm->pgd[pgd_i]) return 0; // Chưa map PGD entry -> Lỗi
+
+//     // Cấp 2: P4D
+//     uint64_t *p4d = (uint64_t *)mm->pgd[pgd_i];
+//     if (!p4d[p4d_i]) return 0; 
+
+//     // Cấp 3: PUD
+//     uint64_t *pud = (uint64_t *)p4d[p4d_i];
+//     if (!pud[pud_i]) return 0;
+
+//     // Cấp 4: PMD
+//     uint64_t *pmd = (uint64_t *)pud[pud_i];
+//     if (!pmd[pmd_i]) return 0;
+
+//     // Cấp 5: PT (Bảng trang cuối cùng)
+//     uint64_t *pt = (uint64_t *)pmd[pmd_i];
+    
+//     // 4. Trả về giá trị PTE tìm thấy
+//     return (uint32_t)pt[pt_i]; 
+// }
 
 /* Set PTE page table entry
  * @caller : caller

@@ -131,6 +131,6 @@ struct krnl_t
 	uint32_t active_mswp_id;
 #endif
 };
-
+int invoke_syscall(struct pcb_t *caller, int code, ...);
 
 #endif
