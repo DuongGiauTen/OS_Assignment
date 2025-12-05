@@ -17,6 +17,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+/* Helper function to free a frame list */
+int free_frm_lst(struct framephy_struct **frm_lst, struct memphy_struct *mp) {
+    struct framephy_struct *current = *frm_lst;
+    struct framephy_struct *next;
+
+    while (current != NULL) {
+        next = current->fp_next;
+        // Trả lại frame cho bộ nhớ vật lý
+        MEMPHY_put_freefp(mp, current->fpn); 
+        free(current); // Giải phóng node
+        current = next;
+    }
+    *frm_lst = NULL;
+    return 0;
+}
+
 #if !defined(MM64)
 /*
  * PAGING based Memory Management
@@ -71,7 +87,27 @@ int init_pte(addr_t *pte,
  */
 int get_pd_from_address(addr_t addr, addr_t* pgd, addr_t* p4d, addr_t* pud, addr_t* pmd, addr_t* pt)
 {
-  printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  //printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  
+  // need to modify more ----------------------------------------------------------
+  const unsigned PAGE_SHIFT = 12;    /* 4KB pages */
+  const unsigned LEVEL_BITS  = 9;    /* 5-level, 9 bits/level */
+  const unsigned long long LEVEL_MASK = ((1ULL << LEVEL_BITS) - 1ULL);
+
+  unsigned long long v = (unsigned long long)addr;
+  unsigned long long pgn = v >> PAGE_SHIFT; /* page number */
+
+  unsigned long long idx_pgd = (pgn >> (LEVEL_BITS * 4)) & LEVEL_MASK;
+  unsigned long long idx_p4d = (pgn >> (LEVEL_BITS * 3)) & LEVEL_MASK;
+  unsigned long long idx_pud = (pgn >> (LEVEL_BITS * 2)) & LEVEL_MASK;
+  unsigned long long idx_pmd = (pgn >> (LEVEL_BITS * 1)) & LEVEL_MASK;
+  unsigned long long idx_pt  = (pgn >> (LEVEL_BITS * 0)) & LEVEL_MASK;
+
+  if (pgd) *pgd = (addr_t)idx_pgd;
+  if (p4d) *p4d = (addr_t)idx_p4d;
+  if (pud) *pud = (addr_t)idx_pud;
+  if (pmd) *pmd = (addr_t)idx_pmd;
+  if (pt)  *pt  = (addr_t)idx_pt;
   return 0;
 }
 
@@ -186,7 +222,49 @@ addr_t vmap_page_range(struct pcb_t *caller,           // process call
 
 addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struct **frm_lst)
 {
-  printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  //printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  int pgit, fpn;
+  struct framephy_struct *newfp_str = NULL; // pointer to a frame node
+  int max_frames = caller->krnl->mram->maxsz / PAGING_PAGESZ;
+  if (req_pgnum > max_frames){
+    printf("[ERROR] %s: Request page number exceeds maximum frames in RAM\n", __func__);
+    return -1;
+  }
+  for (pgit = 0; pgit < req_pgnum; pgit++)
+  {
+    if (MEMPHY_get_freefp(caller->krnl->mram, &fpn) != 0){
+      int vicpgn;
+      if (find_victim_page(caller->krnl->mm, &vicpgn) != 0){
+        free_frm_lst(frm_lst, caller->krnl->mram);
+        return -1;
+      }
+      int vicfpn = PAGING_FPN(caller->krnl->mm->pgd[vicpgn]);
+      int swpfpn;
+      if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) != 0){
+        free_frm_lst(frm_lst, caller->krnl->mram);
+        return -3000; // there is no frame left in RAM nor SWAP
+      }
+      // swap page from vicfpn to swpfpn
+      __swap_cp_page(caller->krnl->mram, vicfpn, caller->krnl->active_mswp, swpfpn);
+      pte_set_swap(caller, vicpgn, 0, swpfpn);
+      fpn = vicfpn;
+    }
+    // make new frame node
+    newfp_str = malloc(sizeof(struct framephy_struct)); // alloc a frame node
+    newfp_str->fpn = fpn;
+    newfp_str->owner = caller->krnl->mm;
+    newfp_str->fp_next = NULL;
+    // link node to frm_lst
+    if (*frm_lst == NULL)
+      *frm_lst = newfp_str; // if the fisrt node, so the head would be it
+    else
+    {
+      newfp_str->fp_next = *frm_lst; // or, link the new node to the first (like the output)
+    }
+    *frm_lst = newfp_str; // update frm_lst head
+  }
+  
+
   return 0;
 }
 
@@ -225,8 +303,29 @@ int __swap_cp_page(struct memphy_struct *mpsrc, addr_t srcfpn,
  */
 int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 {
-  printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
-  return 0;
+  //printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
+  if (vma0 == NULL) {
+    // Memory allocation failed
+    return -1;
+  }
+  vma0->vm_id = 0;
+  vma0->vm_start = 0;
+  vma0->vm_end = caller->bp;
+  vma0->sbrk = 0;
+
+  if (mm->mmap == NULL) {
+    mm->mmap = vma0;
+  } else {
+    vma0->vm_next = mm->mmap;
+    mm->mmap = vma0->vm_next;
+  }
+  mm->pgd = malloc(PAGING_MAX_PGN * sizeof(uint32_t));
+  if (mm->pgd == NULL) {
+    // Memory allocation failed
+    free(vma0);
+    return -1;
+  }
 }
 
 struct vm_rg_struct *init_vm_rg(addr_t rg_start, addr_t rg_end)
