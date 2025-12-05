@@ -35,23 +35,26 @@ void translate_64bit_address(uint64_t addr,
     *pgd = (addr >> 48) & 0x1FFULL;
 }
 
-/* Hàm lấy index bảng trang từ địa chỉ ảo */
-void get_pd_from_address(addr_t addr,
+/* * get_pd_from_address
+ * Chú ý: Header dùng addr_t, trả về int.
+ */
+int get_pd_from_address(addr_t addr,
                          addr_t *pgd, addr_t *p4d, addr_t *pud,
                          addr_t *pmd, addr_t *pt)
 {
     uint32_t dummy;
-    translate_64bit_address(addr,
-                            (uint32_t *)pgd,
-                            (uint32_t *)p4d,
-                            (uint32_t *)pud,
-                            (uint32_t *)pmd,
-                            (uint32_t *)pt,
-                            &dummy);
+    /* Ép kiểu về uint32_t* để khớp với hàm translate */
+    translate_64bit_address((uint64_t)addr,
+                            (uint32_t *)pgd, (uint32_t *)p4d, 
+                            (uint32_t *)pud, (uint32_t *)pmd, 
+                            (uint32_t *)pt, &dummy);
+    return 0;
 }
 
-/* Hàm lấy index bảng trang từ số hiệu trang (PGN) */
-void get_pd_from_pagenum(uint64_t pgn,
+/* * get_pd_from_pagenum
+ * Chú ý: Header dùng uint64_t cho pgn và uint32_t* cho các con trỏ.
+ */
+int get_pd_from_pagenum(uint64_t pgn,
                          uint32_t *pgd,
                          uint32_t *p4d,
                          uint32_t *pud,
@@ -61,6 +64,7 @@ void get_pd_from_pagenum(uint64_t pgn,
     uint64_t addr = pgn << 12;
     uint32_t dummy;
     translate_64bit_address(addr, pgd, p4d, pud, pmd, pt, &dummy);
+    return 0;
 }
 
 /*
@@ -106,13 +110,12 @@ int init_pte(addr_t *pte,
 int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff)
 {
   addr_t *pte;
-  addr_t pgd=0, p4d=0, pud=0, pmd=0, pt=0;
+  uint32_t pgd=0, p4d=0, pud=0, pmd=0, pt=0;
     
-  // dummy pte alloc to avoid runtime error
   pte = malloc(sizeof(addr_t));
 
-  /* Get value from the system */
-  get_pd_from_pagenum(pgn, (uint32_t*)&pgd, (uint32_t*)&p4d, (uint32_t*)&pud, (uint32_t*)&pmd, (uint32_t*)&pt);
+  /* Sử dụng get_pd_from_pagenum đúng kiểu (uint64_t, uint32_t*) */
+  get_pd_from_pagenum((uint64_t)pgn, &pgd, &p4d, &pud, &pmd, &pt);
     
   SETBIT(*pte, PAGING_PTE_PRESENT_MASK);
   SETBIT(*pte, PAGING_PTE_SWAPPED_MASK);
@@ -129,13 +132,11 @@ int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff)
 int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
 {
   addr_t *pte;
-  addr_t pgd=0, p4d=0, pud=0, pmd=0, pt=0;
+  uint32_t pgd=0, p4d=0, pud=0, pmd=0, pt=0;
     
-  // dummy pte alloc to avoid runtime error
   pte = malloc(sizeof(addr_t));
 
-  /* Get value from the system */
-  get_pd_from_pagenum(pgn, (uint32_t*)&pgd, (uint32_t*)&p4d, (uint32_t*)&pud, (uint32_t*)&pmd, (uint32_t*)&pt);
+  get_pd_from_pagenum((uint64_t)pgn, &pgd, &p4d, &pud, &pmd, &pt);
 
   SETBIT(*pte, PAGING_PTE_PRESENT_MASK);
   CLRBIT(*pte, PAGING_PTE_SWAPPED_MASK);
@@ -147,7 +148,7 @@ int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
 
 
 /* Get PTE page table entry */
-uint32_t pte_get_entry(struct pcb_t *caller, uint32_t pgn)
+uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
 {
     uint32_t pgd_i, p4d_i, pud_i, pmd_i, pt_i, off;
 
@@ -184,7 +185,6 @@ int pte_set_entry(struct pcb_t *caller, addr_t vaddr, uint32_t pte_val)
     uint32_t pgd_i, p4d_i, pud_i, pmd_i, pt_i, off;
     struct mm_struct *mm = caller->krnl->mm;
 
-    /* Tách địa chỉ ảo thành index 5 cấp */
     translate_64bit_address((uint64_t)vaddr,
                              &pgd_i, &p4d_i, &pud_i,
                              &pmd_i, &pt_i, &off);
@@ -193,27 +193,35 @@ int pte_set_entry(struct pcb_t *caller, addr_t vaddr, uint32_t pte_val)
     if (!mm->pgd)
         mm->pgd = (addr_t*)calloc(512, sizeof(uint64_t));
 
-    /* Ép kiểu pgd về uint64_t* để thao tác đúng kích thước pointer */
-    uint64_t *pgd_ptr = (uint64_t *)mm->pgd;
+    uint64_t *pgd = (uint64_t *)mm->pgd;
 
-    if (!pgd_ptr[pgd_i])
-        pgd_ptr[pgd_i] = (uint64_t)(uintptr_t)calloc(512, sizeof(uint64_t));
+    /* Cấp phát P4D và liên kết với PGD */
+    if (!pgd[pgd_i]) {
+        /* Cần lưu địa chỉ P4D vào PGD entry */
+        uint64_t *new_p4d = calloc(512, sizeof(uint64_t));
+        pgd[pgd_i] = (uint64_t)(uintptr_t)new_p4d; // Quan trọng: Lưu địa chỉ con trỏ
+    }
+    uint64_t *p4d = (uint64_t *)(uintptr_t)pgd[pgd_i];
 
-    uint64_t *p4d = (uint64_t *)(uintptr_t)pgd_ptr[pgd_i];
-
-    if (!p4d[p4d_i])
-        p4d[p4d_i] = (uint64_t)(uintptr_t)calloc(512, sizeof(uint64_t));
-
+    /* Cấp phát PUD và liên kết với P4D */
+    if (!p4d[p4d_i]) {
+        uint64_t *new_pud = calloc(512, sizeof(uint64_t));
+        p4d[p4d_i] = (uint64_t)(uintptr_t)new_pud;
+    }
     uint64_t *pud = (uint64_t *)(uintptr_t)p4d[p4d_i];
 
-    if (!pud[pud_i])
-        pud[pud_i] = (uint64_t)(uintptr_t)calloc(512, sizeof(uint64_t));
-
+    /* Cấp phát PMD và liên kết với PUD */
+    if (!pud[pud_i]) {
+        uint64_t *new_pmd = calloc(512, sizeof(uint64_t));
+        pud[pud_i] = (uint64_t)(uintptr_t)new_pmd;
+    }
     uint64_t *pmd = (uint64_t *)(uintptr_t)pud[pud_i];
 
-    if (!pmd[pmd_i])
-        pmd[pmd_i] = (uint64_t)(uintptr_t)calloc(512, sizeof(uint64_t));
-
+    /* Cấp phát PT và liên kết với PMD */
+    if (!pmd[pmd_i]) {
+        uint64_t *new_pt = calloc(512, sizeof(uint64_t));
+        pmd[pmd_i] = (uint64_t)(uintptr_t)new_pt;
+    }
     uint64_t *pt = (uint64_t *)(uintptr_t)pmd[pmd_i];
 
     /* Gán entry cuối cùng */
@@ -223,20 +231,13 @@ int pte_set_entry(struct pcb_t *caller, addr_t vaddr, uint32_t pte_val)
 }
 
 /*
- * vmap_pgd_memset - map a range of page at aligned address
+ * vmap_pgd_memset
  */
 int vmap_pgd_memset(struct pcb_t *caller, addr_t addr, int pgnum, addr_t pattern)
 {
-  addr_t *pgd_table = caller->krnl->mm->pgd;
-  addr_t pgd_idx;
-  int i;
-
-  for(i = 0; i < pgnum; i++) {
-      pgd_idx = PAGING64_ADDR_PGD(addr + i * PAGING64_PAGESZ);
-      if (caller->krnl->mm->pgd != NULL) {
-          pgd_table[pgd_idx] = pattern;
-      }
-  }
+  /* Trong 64-bit PGD là bảng con trỏ, không memset trực tiếp như 32-bit được
+   * Đây là hàm stub để tương thích. 
+   */
   return 0;
 }
 
@@ -267,13 +268,42 @@ addr_t vmap_page_range(struct pcb_t *caller, addr_t addr, int pgnum,
 /* alloc_pages_range */
 addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_struct **frm_lst)
 {
-    // Placeholder logic for compilation
+    int pgit;
+    addr_t fpn;
+    struct framephy_struct *newfp_str;
+
+    /* Hàm này cấp phát frame vật lý từ Free List của RAM */
+    for(pgit = 0; pgit < req_pgnum; pgit++)
+    {
+       if(MEMPHY_get_freefp(caller->krnl->mram, &fpn) == 0)
+       {
+           newfp_str = malloc(sizeof(struct framephy_struct));
+           newfp_str->fpn = fpn;
+           newfp_str->fp_next = *frm_lst;
+           *frm_lst = newfp_str;
+       } else {  
+           // Out of memory
+           return -1;
+       }
+    }
     return 0;
 }
 
 /* vm_map_ram */
 addr_t vm_map_ram(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapstart, int incpgnum, struct vm_rg_struct *ret_rg)
 {
+  struct framephy_struct *res_frm_lst = NULL;
+  int ret_alloc;
+
+  /* Cấp phát frame vật lý */
+  ret_alloc = alloc_pages_range(caller, incpgnum, &res_frm_lst);
+
+  if (ret_alloc < 0 && res_frm_lst == NULL)
+     return -1;
+
+  /* Map vùng nhớ ảo vào frame vừa cấp phát */
+  vmap_page_range(caller, mapstart, incpgnum, res_frm_lst, ret_rg);
+
   return 0;
 }
 
@@ -281,6 +311,17 @@ addr_t vm_map_ram(struct pcb_t *caller, addr_t astart, addr_t aend, addr_t mapst
 int __swap_cp_page(struct memphy_struct *mpsrc, addr_t srcfpn,
                    struct memphy_struct *mpdst, addr_t dstfpn)
 {
+  int cellidx;
+  addr_t addrsrc, addrdst;
+  for(cellidx = 0; cellidx < PAGING_PAGESZ; cellidx++)
+  {
+     addrsrc = srcfpn * PAGING_PAGESZ + cellidx;
+     addrdst = dstfpn * PAGING_PAGESZ + cellidx;
+
+     BYTE data;
+     MEMPHY_read(mpsrc, addrsrc, &data);
+     MEMPHY_write(mpdst, addrdst, data);
+  }
   return 0;
 }
 
@@ -291,8 +332,6 @@ int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 
   /* Cấp phát PGD */
   mm->pgd = calloc(512, sizeof(uint64_t));
-  
-  /* XÓA CÁC DÒNG mm->p4d, mm->pud... VÌ STRUCT KHÔNG CÓ */
   
   vma0->vm_id = 0;
   vma0->vm_start = 0;
@@ -382,10 +421,30 @@ int print_list_pgn(struct pgn_t *ip)
 
 int print_pgtbl(struct pcb_t *caller, addr_t start, addr_t end)
 {
-  addr_t pgd=0, p4d=0, pud=0, pmd=0, pt=0;
-  printf("--- Dumping Page Table ---\n");
-  get_pd_from_address(start, &pgd, &p4d, &pud, &pmd, &pt);
-  printf("Addr: %ld -> PGD: %04ld | P4D: %04ld | PUD: %04ld | PMD: %04ld | PT: %04ld\n", 
-         start, (long)pgd, (long)p4d, (long)pud, (long)pmd, (long)pt);
+  uint32_t pgd_idx, p4d_idx, pud_idx, pmd_idx, pt_idx, off;
+  
+  translate_64bit_address((uint64_t)start, &pgd_idx, &p4d_idx, &pud_idx, &pmd_idx, &pt_idx, &off);
+
+  struct mm_struct *mm = caller->krnl->mm;
+  uint64_t *pgd = (uint64_t *)mm->pgd;
+  
+  uint64_t pgd_val = pgd ? pgd[pgd_idx] : 0;
+  
+  uint64_t *p4d = (uint64_t *)(uintptr_t)pgd_val;
+  uint64_t p4d_val = p4d ? p4d[p4d_idx] : 0;
+  
+  uint64_t *pud = (uint64_t *)(uintptr_t)p4d_val;
+  uint64_t pud_val = pud ? pud[pud_idx] : 0;
+  
+  uint64_t *pmd = (uint64_t *)(uintptr_t)pud_val;
+  uint64_t pmd_val = pmd ? pmd[pmd_idx] : 0;
+  
+  uint64_t *pt = (uint64_t *)(uintptr_t)pmd_val;
+  uint64_t pt_val = pt ? pt[pt_idx] : 0;
+
+  printf("print_pgtbl:\n");
+  printf(" PDG=%016lx P4g=%016lx PUD=%016lx PMD=%016lx\n", 
+         pgd_val, p4d_val, pud_val, pmd_val);
+         
   return 0;
 }
