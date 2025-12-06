@@ -306,8 +306,17 @@ addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_st
     }
     else
     {
-      newfp_str->fp_next = *frm_lst;
-      *frm_lst = newfp_str;
+      // Thêm vào đầu
+      // newfp_str->fp_next = *frm_lst;
+      // *frm_lst = newfp_str;
+      // Thêm vào đuôi
+      struct framephy_struct *tail = *frm_lst;
+      while (tail->fp_next != NULL)
+      {
+        tail = tail->fp_next;
+      }
+      // Nối node mới vào sau đuôi
+      tail->fp_next = newfp_str;
     }
   }
 
