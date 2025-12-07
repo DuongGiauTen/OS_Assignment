@@ -14,11 +14,9 @@
  */
 int empty(struct queue_t *q)
 {
-        // Bước 1: Kiểm tra queue hợp lệ
         if (q == NULL)
                 return 1;
 
-        // Bước 2: Kiểm tra size
         return (q->size == 0);
 }
 
@@ -44,7 +42,6 @@ void enqueue(struct queue_t *q, struct pcb_t *proc)
         }
 
         // Bước 3: Thêm process vào cuối mảng
-        // VD: size=2 → thêm vào index 2
         q->proc[q->size] = proc;
 
         // Bước 4: Tăng size lên 1
@@ -57,7 +54,6 @@ void enqueue(struct queue_t *q, struct pcb_t *proc)
  * Return: Process đầu tiên, NULL nếu rỗng
  *
  * Ví dụ: [P1, P2, P3] → dequeue() → P1, còn [P2, P3]
- * Độ phức tạp: O(n) do phải dịch chuyển mảng
  */
 struct pcb_t *dequeue(struct queue_t *q)
 {

@@ -1,5 +1,5 @@
 /**
- * sched.c - Multi-Level Queue (MLQ) Scheduler
+ * sched.c - Multi-Level Queue (MLQ) Scheduler - FIXED VERSION
  *
  * Chính sách MLQ:
  * - 140 mức priority (0=cao nhất, 139=thấp nhất)
@@ -71,45 +71,34 @@ void init_scheduler(void)
 
 // ========== MLQ MODE ==========
 /**
- * get_mlq_proc() - Lấy process tiếp theo (CORE ALGORITHM)
+ * get_mlq_proc() - Lấy process tiếp theo
  * Return: PCB cần dispatch, NULL nếu không có
  *
  * Thuật toán:
  * 1. Tìm queue có priority cao nhất có process
- * 2. Nếu cao hơn cur_prio -> chuyển ngay (preemption)
- * 3. Nếu còn slot -> lấy từ queue hiện tại
- * 4. Hết slot -> chuyển queue tiếp theo
+ * 2. Preemption: Chuyển sang priority cao hơn HOẶC queue hiện tại rỗng
+ * 3. Kiểm tra slot: Nếu hết slot hoặc queue rỗng -> tìm queue tiếp theo
+ * 4. Dispatch process từ queue đã chọn
  *
  * Static variables (GIỮ STATE giữa các lần gọi):
  *   cur_prio: priority đang phục vụ
  *   used_slot: số lần đã lấy từ cur_prio
- *
- * Ví dụ:
- *   Đang phục vụ P1(prio=4), used_slot=50
- *   P2(prio=0) vừa load vào
- *   -> Tìm thấy queue[0] có P2
- *   -> 0 < 4 -> CHUYỂN NGAY cur_prio=0, used_slot=0
- *   -> Dispatch P2 (ưu tiên cao hơn!)
  */
 struct pcb_t *get_mlq_proc(void)
 {
 	struct pcb_t *proc = NULL;
-
-	/*TODO: get a process from PRIORITY [ready_queue].
-	 * Remember to use lock to protect the queue.
-	 * */
 	static int used_slot = 0; // Đếm số lần dùng priority hiện tại
 	static int cur_prio = 0;  // Priority đang phục vụ
 
 	pthread_mutex_lock(&queue_lock);
 
-	// BƯỚC 1: Tìm queue có priority cao nhất có process
+	// ===== BƯỚC 1: Tìm queue có priority cao nhất có process =====
 	int highest_prio = -1;
 	for (int i = 0; i < MAX_PRIO; i++)
 	{
 		if (!empty(&mlq_ready_queue[i]))
 		{
-			highest_prio = i; // Tìm thấy
+			highest_prio = i;
 			break;
 		}
 	}
@@ -120,15 +109,15 @@ struct pcb_t *get_mlq_proc(void)
 		return NULL;
 	}
 
-	// BƯỚC 2: Priority preemption check
-	// Nếu có priority cao hơn -> chuyển ngay
-	if (highest_prio < cur_prio)
+	// ===== BƯỚC 2: Priority preemption check =====
+	// Preemption: Chuyển sang priority cao hơn hoặc queue hiện tại rỗng
+	if (highest_prio < cur_prio || empty(&mlq_ready_queue[cur_prio]))
 	{
 		cur_prio = highest_prio;
-		used_slot = 0; // Reset slot counter
+		used_slot = 0;
 	}
 
-	// BƯỚC 3: Lấy process
+	// ===== BƯỚC 3: Kiểm tra slot và lấy process =====
 	if (!empty(&mlq_ready_queue[cur_prio]) && used_slot < slot[cur_prio])
 	{
 		// Queue hiện tại còn slot và có process
@@ -137,22 +126,29 @@ struct pcb_t *get_mlq_proc(void)
 	}
 	else
 	{
-		// Hết slot hoặc queue rỗng -> tìm queue khác
+		// Hết slot hoặc queue rỗng -> tìm queue tiếp theo
 		used_slot = 0;
-		int start_prio = cur_prio;
+		int found = 0;
 
-		// Duyệt vòng tròn tìm queue có process
-		do
+		for (int offset = 1; offset <= MAX_PRIO; offset++)
 		{
-			cur_prio = (cur_prio + 1) % MAX_PRIO;
+			int next_prio = (cur_prio + offset) % MAX_PRIO;
 
-			if (!empty(&mlq_ready_queue[cur_prio]))
+			if (!empty(&mlq_ready_queue[next_prio]))
 			{
+				cur_prio = next_prio;
 				proc = dequeue(&mlq_ready_queue[cur_prio]);
 				used_slot = 1;
+				found = 1;
 				break;
 			}
-		} while (cur_prio != start_prio);
+		}
+
+		// Nếu không tìm thấy queue nào (lý thuyết không xảy ra)
+		if (!found)
+		{
+			proc = NULL;
+		}
 	}
 
 	pthread_mutex_unlock(&queue_lock);
@@ -189,10 +185,6 @@ struct pcb_t *get_proc(void)
 
 void put_proc(struct pcb_t *proc)
 {
-	// proc->ready_queue = &ready_queue;
-	// proc->mlq_ready_queue = mlq_ready_queue;
-	// proc->running_list = &running_list;
-
 	/* TODO: put running proc to running_list */
 	pthread_mutex_lock(&queue_lock);
 	enqueue(&running_list, proc); // Tracking
@@ -203,10 +195,6 @@ void put_proc(struct pcb_t *proc)
 
 void add_proc(struct pcb_t *proc)
 {
-	// proc->ready_queue = &ready_queue;
-	// proc->mlq_ready_queue = mlq_ready_queue;
-	// proc->running_list = &running_list;
-
 	/* TODO: put running proc to running_list */
 	pthread_mutex_lock(&queue_lock);
 	enqueue(&running_list, proc); // Tracking
@@ -237,9 +225,6 @@ struct pcb_t *get_proc(void)
 
 void put_proc(struct pcb_t *proc)
 {
-	// proc->ready_queue = &ready_queue;
-	// proc->running_list = &running_list;
-
 	/* TODO: put running proc to running_list */
 	pthread_mutex_lock(&queue_lock);
 	enqueue(&running_list, proc);
@@ -249,9 +234,6 @@ void put_proc(struct pcb_t *proc)
 
 void add_proc(struct pcb_t *proc)
 {
-	// proc->ready_queue = &ready_queue;
-	// proc->running_list = &running_list;
-
 	/* TODO: put running proc to running_list */
 	pthread_mutex_lock(&queue_lock);
 	enqueue(&running_list, proc);
