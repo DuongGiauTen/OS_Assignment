@@ -257,13 +257,16 @@ addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_st
   // printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
   int pgit, fpn;
   struct framephy_struct *newfp_str = NULL; // pointer to a frame node
+  printf("[DEBUG] alloc_pages_range: Requesting %d pages for PID %d\n", req_pgnum, caller->pid);  
   // int max_frames = caller->krnl->mram->maxsz / PAGING_PAGESZ;
 
   for (pgit = 0; pgit < req_pgnum; pgit++)
   {
     newfp_str = malloc(sizeof(struct framephy_struct));
-    if (newfp_str == NULL)
-      return -1; // Memory allocation failed
+    if (newfp_str == NULL){
+      printf("[DEBUG] alloc_pages_range: Malloc failed!\n");
+      return -1;
+    }
     newfp_str->fp_next = NULL;
 
     if (MEMPHY_get_freefp(caller->krnl->mram, &fpn) == 0)
@@ -272,19 +275,22 @@ addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_st
     }
     else
     {
+      printf("[DEBUG] alloc_pages_range: RAM FULL. Trying to SWAP...\n");
       int vicpgn;
       int swpfpn;
 
       if (find_victim_page(caller->krnl->mm, &vicpgn) != 0)
       {
         // No victim page found, allocation fails
+        printf("[DEBUG] alloc_pages_range: Failed to find victim (Memory Exhausted)\n");
         free(newfp_str);
         return -1;
       }
 
       if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) != 0)
       {
-        // No free swap page found, allocation fails
+        // No free swap page found, swap full allocation fails
+        printf("[DEBUG] alloc_pages_range: SWAP FULL!\n");
         free(newfp_str);
         return -3000;
       }
@@ -296,6 +302,7 @@ addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_st
 
       pte_set_swap(caller, vicpgn, 0, swpfpn);
       newfp_str->fpn = vicfpn;
+      printf("[DEBUG] alloc_pages_range: Swapped victim page %d to swap frame %d. Took frame %d.\n", vicpgn, swpfpn, vicfpn);
     }
 
     newfp_str->owner = caller->krnl->mm;
@@ -309,6 +316,7 @@ addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_st
       // Thêm vào đầu
       // newfp_str->fp_next = *frm_lst;
       // *frm_lst = newfp_str;
+      
       // Thêm vào đuôi
       struct framephy_struct *tail = *frm_lst;
       while (tail->fp_next != NULL)
@@ -319,7 +327,7 @@ addr_t alloc_pages_range(struct pcb_t *caller, int req_pgnum, struct framephy_st
       tail->fp_next = newfp_str;
     }
   }
-
+  printf("[DEBUG] alloc_pages_range: SUCCESS\n");
   return 0;
 }
 
@@ -398,31 +406,76 @@ int __swap_cp_page(struct memphy_struct *mpsrc, addr_t srcfpn,
 int init_mm(struct mm_struct *mm, struct pcb_t *caller)
 {
   // printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  // struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
+  // if (vma0 == NULL)
+  // {
+  //   // Memory allocation failed
+  //   return -1;
+  // }
+  // mm->pgd = malloc(PAGING_MAX_PGN * sizeof(uint32_t));
+  // if (mm->pgd == NULL)
+  // {
+  //   // Memory allocation failed
+  //   free(vma0);
+  //   return -1;
+  // }
+  // for (int i = 0; i < PAGING_MAX_PGN; i++)
+  // {
+  //   mm->pgd[i] = 0; // Initialize all PTEs to 0
+  // }
+
+  // vma0->vm_id = 0;
+  // vma0->vm_start = 0;
+  // vma0->vm_end = 0;
+  // vma0->sbrk = 0;
+  // vma0->vm_next = NULL;
+
+  // mm->mmap = vma0;
+  // return 0;
+    //printf("ALLOC: Init mm\n");
   struct vm_area_struct *vma0 = malloc(sizeof(struct vm_area_struct));
-  if (vma0 == NULL)
-  {
+  if (vma0 == NULL) {
     // Memory allocation failed
     return -1;
   }
+  vma0->vm_id = 0;
+  vma0->vm_start = 0;
+  vma0->vm_end = caller->bp;
+  vma0->sbrk = 0;
+  //printf ("\tvmaid: %d vm_start: %d vm_end: %d sbrk: %d\n", vma0->vm_id,vma0->vm_start,   vma0->vm_end ,vma0->sbrk);
+  if(mm->mmap == NULL) mm->mmap = vma0;
+  else {
+    vma0->vm_next = mm->mmap;
+    mm->mmap = vma0->vm_next;
+  }
   mm->pgd = malloc(PAGING_MAX_PGN * sizeof(uint32_t));
-  if (mm->pgd == NULL)
-  {
+  if (mm->pgd == NULL) {
     // Memory allocation failed
     free(vma0);
     return -1;
   }
-  for (int i = 0; i < PAGING_MAX_PGN; i++)
-  {
-    mm->pgd[i] = 0; // Initialize all PTEs to 0
-  }
 
-  vma0->vm_id = 0;
-  vma0->vm_start = 0;
-  vma0->vm_end = 0;
-  vma0->sbrk = 0;
+  
+  /* By default the owner comes with at least one vma */
+  // struct vm_rg_struct *first_rg = init_vm_rg(vma0->vm_start, vma0->sbrk);
+  // if (first_rg == NULL) {
+  //   // Memory allocation failed
+  //   free(vma0);
+  //   free(mm->pgd);
+  //   return -1;
+  // }
+  
+  //enlist_vm_rg_node(&vma0->vm_freerg_list, first_rg);
+
+  /* TODO update VMA0 next */
+  // vma0->next = ...
   vma0->vm_next = NULL;
 
-  mm->mmap = vma0;
+  /* Point vma owner backward */
+  vma0->vm_mm = mm; 
+
+  /* TODO: update mmap */
+  
   return 0;
 }
 
@@ -491,32 +544,32 @@ int enlist_pgn_node(struct pgn_t **plist, addr_t pgn)
 }
 
 /* Hàm pgread: CPU gọi hàm này -> Hàm này gọi __read (trong libmem.c) */
-int pgread(struct pcb_t *proc, uint32_t source, addr_t offset, uint32_t destination)
-{
-  BYTE data;
-  int val = __read(proc, 0, source, offset, &data);
+// int pgread(struct pcb_t *proc, uint32_t source, addr_t offset, uint32_t destination)
+// {
+//   BYTE data;
+//   int val = __read(proc, 0, source, offset, &data);
 
-  destination = (uint32_t)data;
-  return val;
-}
+//   destination = (uint32_t)data;
+//   return val;
+// }
 
-/*pgwrite */
-int pgwrite(struct pcb_t *proc, BYTE data, uint32_t destination, addr_t offset)
-{
-  return __write(proc, 0, destination, offset, data);
-}
+// /*pgwrite */
+// int pgwrite(struct pcb_t *proc, BYTE data, uint32_t destination, addr_t offset)
+// {
+//   return __write(proc, 0, destination, offset, data);
+// }
 
-/*pgalloc */
-int pgalloc(struct pcb_t *proc, uint32_t size, uint32_t reg_index)
-{
-  addr_t addr;
-  return __alloc(proc, 0, reg_index, size, &addr);
-}
+// /*pgalloc */
+// int pgalloc(struct pcb_t *proc, uint32_t size, uint32_t reg_index)
+// {
+//   addr_t addr;
+//   return __alloc(proc, 0, reg_index, size, &addr);
+// }
 
-int pgfree_data(struct pcb_t *proc, uint32_t reg_index)
-{
-  return __free(proc, 0, reg_index);
-}
+// int pgfree_data(struct pcb_t *proc, uint32_t reg_index)
+// {
+//   return __free(proc, 0, reg_index);
+// }
 
 int print_list_fp(struct framephy_struct *ifp)
 {
@@ -602,52 +655,60 @@ int print_list_pgn(struct pgn_t *ip)
 
 int print_pgtbl(struct pcb_t *caller, uint32_t start, uint32_t end)
 {
-  //printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
-int pgn_start, pgn_end;
-    int pgit;
+  // printf("[ERROR] %s: This feature 32 bit mode is deprecated\n", __func__);
+  int pgn_start, pgn_end;
+  int pgit;
 
-    if (caller == NULL)
+  if (caller == NULL)
+  {
+    printf("NULL caller\n");
+    return -1;
+  }
+
+  // struct mm_struct *mm = caller->krnl->mm;
+
+  if (end == -1)
+  {
+    pgn_start = 0;
+    /* Lấy VMA đầu tiên (vmaid=0) để xác định điểm cuối */
+    struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, 0);
+    // if (cur_vma != NULL)
+    // {
+    //   end = cur_vma->sbrk;
+    // }
+    // else
+    // {
+    //   end = 0;
+    // }
+    end = cur_vma->sbrk;
+  }
+
+  pgn_start = PAGING_PGN(start); 
+  printf("[DEBUG] pgn_start: %d\n", pgn_start);
+  pgn_end = PAGING_PGN(end);
+  printf("[DEBUG] pgn_end: %d\n", pgn_end);
+
+  printf("print_pgtbl: %d - %d\n", start, end);
+
+  /* In nội dung thô của PTE (Page Table Entry) */
+  for (pgit = pgn_start; pgit < pgn_end; pgit++)
+  {
+    /* Kiểm tra index có hợp lệ không để tránh SegFault */
+    if (caller->krnl->mm->pgd[pgit] != 0)
     {
-        printf("NULL caller\n");
-        return -1;
+      printf("%08ld: %08x\n", pgit * sizeof(uint32_t), caller->krnl->mm->pgd[pgit]);
     }
+  }
 
-    struct mm_struct *mm = caller->krnl->mm; 
-
-    if (end == -1)
+  /* In thông tin ánh xạ chi tiết: Page Number -> Frame Number */
+  for (pgit = pgn_start; pgit < pgn_end; pgit++)
+  {
+    if (caller->krnl->mm->pgd[pgit] != 0)
     {
-        pgn_start = 0;
-        /* Lấy VMA đầu tiên (vmaid=0) để xác định điểm cuối */
-        struct vm_area_struct *cur_vma = get_vma_by_num(mm, 0);
-        if (cur_vma != NULL) {
-            end = cur_vma->vm_end;
-        } else {
-            end = 0;
-        }
+      /* Sử dụng macro PAGING_FPN định nghĩa trong mm.h */
+      printf("Page Number: %d -> Frame Number: %d\n", pgit, PAGING_FPN(caller->krnl->mm->pgd[pgit]));
     }
-
-    pgn_start = PAGING_PGN(start);
-    pgn_end = PAGING_PGN(end);
-
-    printf("print_pgtbl: %d - %d\n", start, end);
-
-    /* In nội dung thô của PTE (Page Table Entry) */
-    for (pgit = pgn_start; pgit < pgn_end; pgit++)
-    {
-        /* Kiểm tra index có hợp lệ không để tránh SegFault */
-        if (mm->pgd[pgit] != 0) { 
-             printf("%08ld: %08x\n", pgit * sizeof(uint32_t), mm->pgd[pgit]);
-        }
-    }
-
-    /* In thông tin ánh xạ chi tiết: Page Number -> Frame Number */
-    for (pgit = pgn_start; pgit < pgn_end; pgit++)
-    {
-        if (mm->pgd[pgit] != 0) {
-            /* Sử dụng macro PAGING_FPN định nghĩa trong mm.h */
-            printf("Page Number: %d -> Frame Number: %d\n", pgit, PAGING_FPN(mm->pgd[pgit]));
-        }
-    }
+  }
   return 0;
 }
 

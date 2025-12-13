@@ -173,6 +173,31 @@ int MEMPHY_dump(struct memphy_struct *mp)
   /*TODO dump memphy contnt mp->storage
    *     for tracing the memory content
    */
+if (mp == NULL || mp->storage == NULL)
+      return -1;
+
+   printf("\n=========== MEMPHY DUMP ===========\n");
+   printf("Max Size: %d bytes\n", mp->maxsz);
+   
+   int printed = 0;
+   // Duyệt qua toàn bộ bộ nhớ
+   for (int i = 0; i < mp->maxsz; i++) 
+   {
+       // Chỉ in những ô nhớ có dữ liệu (khác 0) để tránh spam màn hình
+       if (mp->storage[i] != 0) 
+       {
+           // In ra: [Địa chỉ Hex]: Giá trị Hex (Giá trị thập phân)
+           printf("  Addr [0x%08x]: %02x (%d)\n", i, mp->storage[i], mp->storage[i]);
+           printed++;
+       }
+   }
+
+   if (printed == 0) 
+   {
+       printf("  (Memory is Empty)\n");
+   }
+   printf("===================================\n");
+   
    return 0;
 }
 
