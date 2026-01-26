@@ -1,4 +1,3 @@
-
 #include "cpu.h"
 #include "timer.h"
 #include "sched.h"
@@ -153,29 +152,20 @@ static void read_config(const char * path) {
 	ld_processes.path = (char**)malloc(sizeof(char*) * num_processes);
 	ld_processes.start_time = (unsigned long*)
 		malloc(sizeof(unsigned long) * num_processes);
+        
 #ifdef MM_PAGING
+    /* * FIXED: Luôn đọc cấu hình bộ nhớ từ file input
+     * Bất kể MM_FIXED_MEMSZ có được define hay không.
+     * Định dạng dòng 2: RAM_SZ SWAP0_SZ SWAP1_SZ SWAP2_SZ SWAP3_SZ
+     */
 	int sit;
-#ifdef MM_FIXED_MEMSZ
-	/* We provide here a back compatible with legacy OS simulatiom config file
-         * In which, it have no addition config line for Mema, keep only one line
-	 * for legacy info 
-         *  [time slice] [N = Number of CPU] [M = Number of Processes to be run]
-         */
-        memramsz    =  0x100000;
-        memswpsz[0] = 0x1000000;
-	for(sit = 1; sit < PAGING_MAX_MMSWP; sit++)
-		memswpsz[sit] = 0;
-#else
-	/* Read input config of memory size: MEMRAM and upto 4 MEMSWP (mem swap)
-	 * Format: (size=0 result non-used memswap, must have RAM and at least 1 SWAP)
-	 *        MEM_RAM_SZ MEM_SWP0_SZ MEM_SWP1_SZ MEM_SWP2_SZ MEM_SWP3_SZ
-	*/
-	fscanf(file, "%d\n", &memramsz);
+	fscanf(file, "%d", &memramsz);
 	for(sit = 0; sit < PAGING_MAX_MMSWP; sit++)
 		fscanf(file, "%d", &(memswpsz[sit])); 
 
-       fscanf(file, "\n"); /* Final character */
-#endif
+    /* Nuốt ký tự xuống dòng để chuẩn bị đọc dòng Process tiếp theo */
+    char c;
+    while((c = fgetc(file)) != '\n' && c != EOF); 
 #endif
 
 #ifdef MLQ_SCHED
@@ -195,6 +185,7 @@ static void read_config(const char * path) {
 #endif
 		strcat(ld_processes.path[i], proc);
 	}
+    fclose(file);
 }
 
 int main(int argc, char * argv[]) {
@@ -274,6 +265,3 @@ int main(int argc, char * argv[]) {
 	return 0;
 
 }
-
-
-
